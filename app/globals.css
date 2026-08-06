@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens — LOCKED, see brief §9.1.
+   Palette comes from the mascot's world: river, timber, water,
+   with EPA red as the single brand accent (CTA only). */
+:root {
+  --tub: #0e2a2f; /* page background (deep river teal) */
+  --tub2: #143a40; /* panels */
+  --tub3: #1c4b52; /* raised */
+  --yogoch: #c98a4b; /* timber accent */
+  --yogoch-och: #e5bc8a; /* light timber (headings, sku labels) */
+  --suv: #8fcbbf; /* water mint (status, secondary) */
+  --epa: #e22929; /* EPA brand red — CTA only */
+  --qor: #f5efe3; /* text */
+  --xira: #9db3b1; /* muted text */
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--tub);
+    color: var(--qor);
+    font-family: var(--font-body), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display), system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  /* Keyboard focus must always be visible (brief §9.3) */
+  :focus-visible {
+    outline: 2px solid var(--suv);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--yogoch);
+    color: var(--tub);
+  }
+}
+
+@layer utilities {
+  .mono-chip {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-weight: 500;
+  }
+}
+
+/* Freeze everything when the visitor asks for less motion (brief §7.1) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
