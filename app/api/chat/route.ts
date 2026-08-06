@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { search, recentText, type SearchHit } from '@/lib/search';
 import { SYSTEM, buildUserTurn } from '@/lib/prompt';
@@ -7,12 +7,11 @@ import { imageUrl, productUrl } from '@/lib/kb';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MODEL = 'claude-opus-5';
-/* The brief's 1000 was measured on a model that did not think. Opus 5 thinks
-   by default and max_tokens caps thinking + answer together, so a 1000 cap
-   truncates mid-sentence. Low effort keeps the latency budget for the voice. */
+/* gpt-5.6-terra balances capability against latency, which matters because
+   the answer is read aloud. Override with OPENAI_MODEL to try gpt-5.6-sol
+   (stronger, pricier) or gpt-5.6-luna (fastest, cheapest) without a deploy. */
+const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
 const MAX_TOKENS = 2000;
-const EFFORT = 'low' as const;
 const HISTORY_TURNS = 8;
 
 type Turn = { role: 'user' | 'assistant'; content: string };
@@ -31,17 +30,26 @@ type Card = {
   img: string | null;
 };
 
+/** The response contract the model must fill (brief §4). Strict mode means
+    the API itself guarantees the shape — no more hoping for clean JSON. */
+const RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    javob: { type: 'string' },
+    artikullar: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['javob', 'artikullar'],
+  additionalProperties: false,
+} as const;
+
 const isTurn = (v: unknown): v is Turn =>
   !!v &&
   typeof v === 'object' &&
   ((v as Turn).role === 'user' || (v as Turn).role === 'assistant') &&
   typeof (v as Turn).content === 'string';
 
-/**
- * The Messages API requires the conversation to start on a user turn, and the
- * stage opens with Qunduz greeting first — so drop any leading assistant turns
- * after slicing.
- */
+/** The stage opens with Qunduz greeting first, so drop leading assistant
+    turns — the conversation the model sees should start with the customer. */
 function sanitiseHistory(raw: unknown): Turn[] {
   if (!Array.isArray(raw)) return [];
   const turns = raw.filter(isTurn).filter((t) => t.content.trim().length > 0);
@@ -50,7 +58,11 @@ function sanitiseHistory(raw: unknown): Turn[] {
   return firstUser === -1 ? [] : recent.slice(firstUser);
 }
 
-/** The model is told to answer with bare JSON, but be forgiving anyway. */
+/**
+ * Strict structured outputs should make this a plain JSON.parse, but the
+ * fallback stays: a silent empty answer was a real bug in the prototype, and
+ * the model is configurable, so a future swap could lose schema enforcement.
+ */
 function parseReply(text: string): { javob: string; artikullar: string[] } {
   const cleaned = text
     .trim()
@@ -82,7 +94,6 @@ function parseReply(text: string): { javob: string; artikullar: string[] } {
     }
   }
 
-  // A silent empty answer was a real bug in the prototype — show the raw text.
   return { javob: cleaned, artikullar: [] };
 }
 
@@ -121,9 +132,9 @@ export async function POST(req: Request) {
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message) return fail('Savol bo‘sh.', 400);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return fail(
-      'ANTHROPIC_API_KEY sozlanmagan. .env.local fayliga kalitni qo‘shing.',
+      'OPENAI_API_KEY sozlanmagan. .env.local fayliga kalitni qo‘shing.',
       500,
     );
   }
@@ -131,34 +142,39 @@ export async function POST(req: Request) {
   const history = sanitiseHistory(body.history);
   const hits = search(message, recentText(history));
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   try {
-    const response = await client.messages.create({
+    const completion = await client.chat.completions.create({
       model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: SYSTEM,
-      output_config: { effort: EFFORT },
+      max_completion_tokens: MAX_TOKENS,
       messages: [
+        { role: 'system', content: SYSTEM },
         ...history.map((t) => ({ role: t.role, content: t.content })),
-        { role: 'user' as const, content: buildUserTurn(message, hits) },
+        { role: 'user', content: buildUserTurn(message, hits) },
       ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'qunduz_javob',
+          strict: true,
+          schema: RESPONSE_SCHEMA,
+        },
+      },
     });
 
-    if (response.stop_reason === 'refusal') {
-      return fail('Model bu savolga javob berishdan bosh tortdi.', 422);
+    const choice = completion.choices[0];
+
+    if (choice?.message.refusal) {
+      return fail(`Model javob berishdan bosh tortdi: ${choice.message.refusal}`, 422);
     }
 
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-      .trim();
+    const text = choice?.message.content?.trim() ?? '';
 
     if (!text) {
       return fail(
-        response.stop_reason === 'max_tokens'
-          ? 'Javob uzilib qoldi (max_tokens). Qayta urinib ko‘ring.'
+        choice?.finish_reason === 'length'
+          ? 'Javob uzilib qoldi (max_completion_tokens). Qayta urinib ko‘ring.'
           : 'Modeldan bo‘sh javob keldi.',
         502,
       );
@@ -173,8 +189,8 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     // Never swallow an upstream error — the UI shows it verbatim.
-    if (err instanceof Anthropic.APIError) {
-      return fail(`Anthropic API: ${err.message}`, err.status ?? 502);
+    if (err instanceof OpenAI.APIError) {
+      return fail(`OpenAI API: ${err.message}`, err.status ?? 502);
     }
     return fail(err instanceof Error ? err.message : String(err), 502);
   }

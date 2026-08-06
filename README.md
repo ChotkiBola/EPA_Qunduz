@@ -16,9 +16,14 @@ npm run dev
 
 | Variable | Used by |
 |---|---|
-| `ANTHROPIC_API_KEY` | `/api/chat` |
+| `OPENAI_API_KEY` | `/api/chat` |
+| `OPENAI_MODEL` | optional; defaults to `gpt-5.6-terra` |
 | `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION` | `/api/tts` |
 | `CRON_SECRET` | `/api/refresh-kb` (daily cron) |
+
+The chat model is swappable without a code change: `gpt-5.6-sol` is the
+strongest, `gpt-5.6-terra` the balance, `gpt-5.6-luna` the fastest and
+cheapest. The answer is read aloud, so latency is part of the trade-off.
 
 `.env.local` is git-ignored. Never commit real keys.
 
