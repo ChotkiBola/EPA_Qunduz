@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { search, recentText, type SearchHit } from '@/lib/search';
 import { SYSTEM, buildUserTurn } from '@/lib/prompt';
 import { imageUrl, productUrl } from '@/lib/kb';
+import type { Card } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,14 +22,8 @@ type ChatRequest = {
   history?: unknown;
 };
 
-/** Card payload for the stage — resolved server-side so the browser never
-    has to download the whole knowledge base. */
-type Card = {
-  s: string; // artikul
-  n: string; // Uzbek title
-  url: string;
-  img: string | null;
-};
+/* Card is resolved server-side so the browser never has to download the
+   whole knowledge base — see lib/types.ts. */
 
 /** The response contract the model must fill (brief §4). Strict mode means
     the API itself guarantees the shape — no more hoping for clean JSON. */

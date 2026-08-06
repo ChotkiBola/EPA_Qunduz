@@ -14,3 +14,18 @@ export type Kb = {
   cats: [string, string][]; // [top, sub]
   items: KbItem[];
 };
+
+/** A product card, resolved server-side by /api/chat. */
+export type Card = {
+  s: string; // artikul
+  n: string; // Uzbek title
+  url: string;
+  img: string | null;
+};
+
+/** Success shape of POST /api/chat. Errors come back as { error }. */
+export type ChatResponse = {
+  javob: string;
+  artikullar: string[];
+  mahsulotlar: Card[];
+};
