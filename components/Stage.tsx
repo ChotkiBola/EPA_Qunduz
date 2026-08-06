@@ -6,6 +6,7 @@ import Orb from './Orb';
 import ProductCard from './ProductCard';
 import Sheet from './Sheet';
 import { GREETING, PHONE, STARTERS } from '@/lib/copy';
+import { useTts } from '@/lib/useTts';
 import type { Card, ChatResponse } from '@/lib/types';
 
 type Msg = {
@@ -38,10 +39,17 @@ export default function Stage() {
   const [showTranscript, setShowTranscript] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  /* Mouth/ring drive. Stays at 0 until the TTS analyser writes into it, so
-     the rig and the rings already read from the right place. */
+  /* Mouth/ring drive — written every frame by the TTS analyser. */
   const levelRef = useRef(0);
   const getLevel = useCallback(() => levelRef.current, []);
+
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const { speak, stop: stopVoice } = useTts({
+    levelRef,
+    onStart: () => setStatus('speaking'),
+    onEnd: () => setStatus('idle'),
+    onError: setVoiceError,
+  });
 
   const inputRef = useRef<HTMLInputElement>(null);
   const busy = status === 'thinking';
@@ -83,7 +91,12 @@ export default function Stage() {
             cards: data.mahsulotlar ?? [],
           },
         ]);
+
         setStatus('idle');
+        if (!muted) {
+          setVoiceError(null);
+          await speak(data.javob, speed);
+        }
       } catch (err) {
         // Drop the failed turn so it cannot poison later context.
         setMessages((prev) => {
@@ -98,8 +111,23 @@ export default function Stage() {
         });
       }
     },
-    [busy, messages],
+    [busy, messages, muted, speak, speed],
   );
+
+  /* The greeting should be heard, not just read. Browsers block audio that
+     was not asked for, so this is best-effort: useTts swallows the block and
+     the greeting simply stays on screen. */
+  const greeted = useRef(false);
+  useEffect(() => {
+    if (greeted.current || muted) return;
+    greeted.current = true;
+    void speak(GREETING, speed);
+  }, [muted, speak, speed]);
+
+  // Muting mid-sentence should actually stop the voice.
+  useEffect(() => {
+    if (muted) stopVoice();
+  }, [muted, stopVoice]);
 
   // Esc closes the stage (the sheets swallow it first when they are open).
   useEffect(() => {
@@ -166,12 +194,19 @@ export default function Stage() {
           />
         </div>
 
-        <p
-          aria-live="polite"
-          className="mono-chip h-5 text-sm tracking-wide text-suv"
-        >
-          {status === 'idle' ? '' : STATUS_LABEL[status]}
-        </p>
+        <div className="flex flex-col items-center gap-1">
+          <p
+            aria-live="polite"
+            className="mono-chip h-5 text-sm tracking-wide text-suv"
+          >
+            {status === 'idle' ? '' : STATUS_LABEL[status]}
+          </p>
+          {/* The answer still stands without audio, so a voice failure is a
+              note rather than the error card. */}
+          {voiceError && (
+            <p className="text-xs text-yogoch-och/80">Ovoz: {voiceError}</p>
+          )}
+        </div>
 
         {/* ------------------------------------------------- answer area */}
         <div className="w-full max-w-2xl text-center">

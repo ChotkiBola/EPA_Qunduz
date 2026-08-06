@@ -38,9 +38,23 @@ tracked template — its values stay empty.
 
 ## Voice
 
-Text-to-speech runs through `/api/tts` on `gpt-4o-mini-tts` with the `ash`
-voice. To change the voice, edit that route — the eleven built-in voices are
-listed in the OpenAI text-to-speech guide.
+Text-to-speech runs through `GET /api/tts?text=…` on `gpt-4o-mini-tts` with the
+`ash` voice. To change the voice, edit that route — the eleven built-in voices
+are listed in the OpenAI text-to-speech guide.
+
+Audio is cached twice: an in-process map keyed by `sha256(model|voice|text)`,
+so a warm instance never re-bills the greeting, and `Cache-Control: immutable`
+so the browser and Vercel's CDN hold it too. Measured locally: 3.6 s on a miss,
+31 ms on a hit.
+
+The mouth is driven by the real waveform — an `AnalyserNode` over the playing
+element, smoothed RMS, normalised to 0–1 and written into a ref that both the
+rig and the orb rings read. There is no synthetic oscillator because there is
+no browser-speech fallback to need one.
+
+A browser will not play audio the user did not ask for, so the spoken greeting
+is best-effort: if autoplay is blocked it stays on screen silently, and the
+first answer speaks normally because a click preceded it.
 
 ## Knowledge base
 
@@ -63,6 +77,6 @@ Tracked in `QUNDUZ_CLAUDE_CODE_BRIEF.md` §12.
 2. ✅ Scraper → `data/kb.json`
 3. ✅ `lib/search.ts` + `/api/chat`
 4. ✅ Stage UI, orb, product cards, transcript
-5. ⬜ `/api/tts` + audio-driven lip sync
+5. ✅ `/api/tts` + audio-driven lip sync
 6. ⬜ Speech input
 7. ⬜ Cron refresh, deploy
