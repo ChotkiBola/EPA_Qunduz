@@ -1,20 +1,7 @@
 import kbJson from '@/data/kb.json';
+import type { Kb } from './types';
 
-/** One catalogue entry, in the compact shape the scraper writes (brief §2.6). */
-export type KbItem = {
-  n: string; // Uzbek title
-  s: string; // sku / artikul
-  c: number; // index into cats
-  sp: string[]; // specifications, max 7
-  d: string; // first sentence of the description
-  u: string; // product slug
-  i: string; // image path after the storage prefix
-};
-
-export type Kb = {
-  cats: [string, string][]; // [top, sub]
-  items: KbItem[];
-};
+export type { Kb, KbItem } from './types';
 
 export const kb = kbJson as Kb;
 
