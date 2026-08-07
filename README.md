@@ -56,6 +56,22 @@ A browser will not play audio the user did not ask for, so the spoken greeting
 is best-effort: if autoplay is blocked it stays on screen silently, and the
 first answer speaks normally because a click preceded it.
 
+## Microphone
+
+Speech input uses the browser's own `SpeechRecognition` at `lang = "uz-UZ"`,
+with interim results shown live in the input and automatic submission when the
+utterance ends. Starting the mic stops Qunduz mid-sentence, so a customer can
+talk over him.
+
+It needs Chrome and a secure context. The button disables itself with an
+explanatory tooltip anywhere else — including plain `http://` on a LAN address,
+which is why testing on a phone means using the Vercel URL rather than
+`http://192.168.x.x:3000`. `localhost` counts as secure.
+
+Recognition quality for Uzbek is Chrome's, not ours. If `uz-UZ` turns out to be
+weak on a real device, the fallback is to keep typing as the primary input; the
+rest of the stage does not depend on the mic.
+
 ## Knowledge base
 
 `data/kb.json` holds the scraped EPA catalogue (940 products, 95 categories) in
@@ -78,5 +94,5 @@ Tracked in `QUNDUZ_CLAUDE_CODE_BRIEF.md` §12.
 3. ✅ `lib/search.ts` + `/api/chat`
 4. ✅ Stage UI, orb, product cards, transcript
 5. ✅ `/api/tts` + audio-driven lip sync
-6. ⬜ Speech input
+6. ✅ Speech input
 7. ⬜ Cron refresh, deploy

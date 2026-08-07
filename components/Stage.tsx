@@ -7,6 +7,7 @@ import ProductCard from './ProductCard';
 import Sheet from './Sheet';
 import { GREETING, PHONE, STARTERS } from '@/lib/copy';
 import { useTts } from '@/lib/useTts';
+import { useSpeechRecognition } from '@/lib/useSpeechRecognition';
 import type { Card, ChatResponse } from '@/lib/types';
 
 type Msg = {
@@ -43,12 +44,21 @@ export default function Stage() {
   const levelRef = useRef(0);
   const getLevel = useCallback(() => levelRef.current, []);
 
-  const [voiceError, setVoiceError] = useState<string | null>(null);
+  /* One line for both voice-side notices: a TTS failure or a mic problem is
+     an aside, not the error card that replaces the answer. */
+  const [notice, setNotice] = useState<string | null>(null);
   const { speak, stop: stopVoice } = useTts({
     levelRef,
     onStart: () => setStatus('speaking'),
     onEnd: () => setStatus('idle'),
-    onError: setVoiceError,
+    onError: setNotice,
+  });
+
+  const sendRef = useRef<(text: string) => void>(() => {});
+  const mic = useSpeechRecognition({
+    onInterim: setInput,
+    onFinal: (text) => sendRef.current(text),
+    onError: setNotice,
   });
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,7 +104,7 @@ export default function Stage() {
 
         setStatus('idle');
         if (!muted) {
-          setVoiceError(null);
+          setNotice(null);
           await speak(data.javob, speed);
         }
       } catch (err) {
@@ -113,6 +123,17 @@ export default function Stage() {
     },
     [busy, messages, muted, speak, speed],
   );
+
+  // The mic's onFinal fires from inside the hook, where `send` would be stale.
+  useEffect(() => {
+    sendRef.current = (text: string) => void send(text);
+  }, [send]);
+
+  // Listening is a status like any other, but must not overwrite "thinking".
+  useEffect(() => {
+    if (mic.listening) setStatus('listening');
+    else setStatus((s) => (s === 'listening' ? 'idle' : s));
+  }, [mic.listening]);
 
   /* The greeting should be heard, not just read. Browsers block audio that
      was not asked for, so this is best-effort: useTts swallows the block and
@@ -201,11 +222,9 @@ export default function Stage() {
           >
             {status === 'idle' ? '' : STATUS_LABEL[status]}
           </p>
-          {/* The answer still stands without audio, so a voice failure is a
-              note rather than the error card. */}
-          {voiceError && (
-            <p className="text-xs text-yogoch-och/80">Ovoz: {voiceError}</p>
-          )}
+          {/* The answer still stands without audio, so a voice or mic failure
+              is a note rather than the error card. */}
+          {notice && <p className="text-xs text-yogoch-och/80">{notice}</p>}
         </div>
 
         {/* ------------------------------------------------- answer area */}
@@ -272,17 +291,39 @@ export default function Stage() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Savolingizni yozing…"
+            placeholder={mic.listening ? 'Gapiring…' : 'Savolingizni yozing…'}
             aria-label="Savolingizni yozing"
             disabled={busy}
             className="min-w-0 flex-1 rounded-full border border-white/10 bg-tub2 px-4 py-3 text-sm text-qor placeholder:text-xira/70 focus:border-suv/40 disabled:opacity-60"
           />
           <button
             type="button"
-            disabled
-            aria-label="Mikrofon"
-            title="Ovozli kiritish tayyorlanmoqda"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/10 bg-tub2 text-xira opacity-50"
+            disabled={!mic.supported || busy}
+            aria-label={mic.listening ? 'Mikrofonni to’xtatish' : 'Mikrofon'}
+            aria-pressed={mic.listening}
+            title={
+              mic.supported
+                ? mic.listening
+                  ? 'To’xtatish'
+                  : 'Gapirib ayting'
+                : 'Ovozli kiritish Chrome brauzerida va HTTPS orqali ishlaydi'
+            }
+            onClick={() => {
+              if (mic.listening) {
+                mic.stop();
+                return;
+              }
+              // Barge-in: the customer talking over Qunduz should silence him.
+              stopVoice();
+              setNotice(null);
+              setInput('');
+              mic.start();
+            }}
+            className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border transition disabled:opacity-40 ${
+              mic.listening
+                ? 'animate-dot-pulse border-epa bg-epa text-white'
+                : 'border-white/10 bg-tub2 text-xira hover:text-qor'
+            }`}
           >
             <IconMic />
           </button>
