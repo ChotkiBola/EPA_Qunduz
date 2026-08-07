@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run scrape || echo \"scrape failed - building with the committed data/kb.json\"",
     "build": "next build",
     "start": "next start",
     "scrape": "tsx scripts/scrape-epa.ts",

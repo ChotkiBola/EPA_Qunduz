@@ -19,6 +19,7 @@ npm run dev
 | `OPENAI_API_KEY` | `/api/chat` and `/api/tts` |
 | `OPENAI_MODEL` | optional; defaults to `gpt-5.6-terra` |
 | `CRON_SECRET` | `/api/refresh-kb` (daily cron) |
+| `VERCEL_DEPLOY_HOOK_URL` | `/api/refresh-kb` (daily cron) |
 
 One provider, one key. The chat model is swappable without a code change:
 `gpt-5.6-sol` is the strongest, `gpt-5.6-terra` the balance, `gpt-5.6-luna` the
@@ -79,6 +80,56 @@ the compact shape described in the build brief. `npm run scrape` regenerates it
 from epa.uz in about ten seconds; the buildId is re-read on every run and
 refreshed once if a request 404s mid-scrape.
 
+The scrape also runs as a `prebuild` step, so **every deployment ships a fresh
+catalogue**. If epa.uz is unreachable the scrape fails loudly in the log and the
+build continues with the committed `data/kb.json` — a bad network should not
+break a deploy. The same fallback means the committed file is worth keeping
+current.
+
+### Daily refresh
+
+`vercel.json` runs a cron at 03:00 UTC against `/api/refresh-kb`.
+
+That route deliberately does **not** scrape. Vercel's filesystem is read-only at
+runtime, `/tmp` is per-instance and ephemeral, and `data/kb.json` is a
+build-time import that the search index and the landing page's counts are built
+from — so writing it at runtime cannot work and would leave instances
+disagreeing. Instead the route triggers a redeploy, and the build does the
+scraping. One mechanism, one source of truth.
+
+It needs two variables. Vercel sends `CRON_SECRET` as a Bearer token on cron
+invocations, and the route rejects anything else — without it the endpoint
+would be an open redeploy button.
+
+| Variable | Where it comes from |
+|---|---|
+| `CRON_SECRET` | any long random string you generate |
+| `VERCEL_DEPLOY_HOOK_URL` | Vercel → Settings → Git → Deploy Hooks → create one for `main` |
+
+## Deploying
+
+1. Push to GitHub and import the repo in Vercel (framework auto-detects as
+   Next.js; no build-command override needed).
+2. Add the environment variables under **Settings → Environment Variables**,
+   ticking Production, Preview and Development:
+   - `OPENAI_API_KEY` — required; without it both `/api/chat` and `/api/tts`
+     return a visible 500.
+   - `OPENAI_MODEL` — optional.
+   - `CRON_SECRET` and `VERCEL_DEPLOY_HOOK_URL` — only needed for the daily
+     refresh. Create the deploy hook first, then paste its URL here.
+3. Redeploy. Vercel does not retrofit new variables onto an existing
+   deployment, so a deploy that predates the variables keeps failing until you
+   trigger a fresh one.
+
+To check the cron by hand:
+
+```bash
+curl -i -H "Authorization: Bearer $CRON_SECRET" https://<your-app>/api/refresh-kb
+```
+
+A correct secret returns `{"ok":true,"triggered":true}` and starts a
+deployment; anything else returns 401.
+
 ## Development notes
 
 Stop the dev server before `npm run build`. Both write to the same `.next`
@@ -95,4 +146,4 @@ Tracked in `QUNDUZ_CLAUDE_CODE_BRIEF.md` §12.
 4. ✅ Stage UI, orb, product cards, transcript
 5. ✅ `/api/tts` + audio-driven lip sync
 6. ✅ Speech input
-7. ⬜ Cron refresh, deploy
+7. ✅ Cron refresh, deploy
