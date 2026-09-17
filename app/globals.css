@@ -67,3 +67,109 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Qunduz idle animatsiyalari (brief v3 §2.1) ──────────────────────────
+   Idle sikllar CSS da, JS da emas: kompozitor ipida ishlaydi, JS band
+   bo'lganda ham to'xtamaydi, va fon tabda rAF muzlaganda ham davom etadi.
+   JS faqat ma'lumotga bog'liq narsani boshqaradi — pirpiratish va jag'.
+
+   Davomiyliklar ataylab bo'linmaydigan (4.2 va 6.8): sinxron bo'lsa
+   harakat mexanik ko'rinadi. */
+
+.qunduz-rig {
+  /* Foiz transform-origin SVG da faqat fill-box bilan viewBox ga mos keladi */
+  transform-box: fill-box;
+}
+
+@keyframes qunduz-nafas {
+  from { transform: scaleY(1); }
+  to   { transform: scaleY(1.015); }
+}
+
+@keyframes qunduz-dum {
+  from { transform: rotate(-2.5deg); }
+  to   { transform: rotate(2.5deg); }
+}
+
+.qunduz-nafas {
+  transform-box: fill-box;
+  transform-origin: 49.93% 98.83%;      /* oyoqlar: (278.6, 609.8) / (558, 617) */
+  animation: qunduz-nafas 4.2s ease-in-out infinite alternate;
+}
+
+/* Gapirayotganda nafas tezlashadi (§2.4) */
+.qunduz-nafas[data-holat='speaking'] { animation-duration: 3.2s; }
+
+.qunduz-dum {
+  transform-box: fill-box;
+  transform-origin: 74.07% 82.27%;      /* dum ulanish nuqtasi: (413.3, 507.6) */
+  animation: qunduz-dum 6.8s ease-in-out infinite alternate;
+}
+
+/* Bosh egilishi — bitta qatlamli rasmda butun gavda egiladi (§2.2, §2.3) */
+.qunduz-egilish {
+  transform-box: fill-box;
+  transform-origin: 49.93% 98.83%;
+  transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Bezak o'chadi, ma'lumot beruvchi harakat (pirpiratish, jag') qoladi */
+  .qunduz-nafas,
+  .qunduz-dum { animation: none !important; }
+  .qunduz-egilish { transition: none !important; }
+}
+
+/* ── Orb halqalari (brief v3 §2.1–2.4) ──────────────────────────────────
+   Halqalar --level CSS o'zgaruvchisidan o'qiydi; uni bitta rAF "nasos"
+   yozadi. Shunda har kadrda JS bitta xususiyat yozadi, qolgani CSS da. */
+
+.orb-halqa {
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px solid var(--suv);
+  will-change: transform, opacity;
+  transition:
+    border-color 500ms ease,
+    opacity 500ms ease;
+}
+
+@keyframes halqa-idle {
+  from { opacity: 0.35; }
+  to   { opacity: 0.5; }
+}
+
+@keyframes halqa-aylanish {
+  to { transform: rotate(360deg); }
+}
+
+[data-holat='idle'] .orb-halqa {
+  animation: halqa-idle 8s ease-in-out infinite alternate;
+  animation-delay: var(--halqa-kechikish, 0s);
+}
+
+/* Mukammal doira aylanganda hech narsa ko'rinmaydi — shuning uchun
+   o'ylash holatida halqa yoyga aylanadi va aylanish sezilarli bo'ladi. */
+[data-holat='thinking'] .orb-halqa {
+  border-color: transparent;
+  border-top-color: var(--suv);
+  opacity: 0.4;
+  animation: halqa-aylanish 12s linear infinite;
+  animation-delay: var(--halqa-kechikish, 0s);
+}
+
+[data-holat='listening'] .orb-halqa,
+[data-holat='speaking'] .orb-halqa {
+  transform: scale(calc(1 + var(--level, 0) * var(--halqa-kuch, 0.06)));
+  opacity: calc(0.3 + var(--level, 0) * 0.5);
+}
+
+[data-holat='listening'] .orb-halqa { border-color: var(--epa); }
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-halqa {
+    animation: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}

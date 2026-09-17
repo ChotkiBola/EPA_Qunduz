@@ -29,3 +29,6 @@ export type ChatResponse = {
   artikullar: string[];
   mahsulotlar: Card[];
 };
+
+/** Avatar holat mashinasi (brief v3 §2): idle → listening → thinking → speaking */
+export type AvatarState = 'idle' | 'listening' | 'thinking' | 'speaking';

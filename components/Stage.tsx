@@ -145,6 +145,30 @@ export default function Stage() {
     void speak(GREETING, speed);
   }, [muted, speak, speed]);
 
+  /* One rAF writes --level; every ring reads it from CSS. Exponential
+     smoothing at 0.8/0.2 per brief v3 2.2 — raw amplitude jitters badly.
+     The loop only exists while there is amplitude to follow. */
+  useEffect(() => {
+    const live = status === 'speaking' || status === 'listening';
+    const root = document.documentElement;
+    if (!live) {
+      root.style.setProperty('--level', '0');
+      return;
+    }
+    let raf = 0;
+    let smooth = 0;
+    const pump = () => {
+      smooth = smooth * 0.8 + levelRef.current * 0.2;
+      root.style.setProperty('--level', smooth.toFixed(3));
+      raf = requestAnimationFrame(pump);
+    };
+    raf = requestAnimationFrame(pump);
+    return () => {
+      cancelAnimationFrame(raf);
+      root.style.setProperty('--level', '0');
+    };
+  }, [status]);
+
   // Muting mid-sentence should actually stop the voice.
   useEffect(() => {
     if (muted) stopVoice();
@@ -208,11 +232,7 @@ export default function Stage() {
             asked ? 'max-w-[min(38vw,190px)]' : 'max-w-[min(70vw,340px)]'
           }`}
         >
-          <Orb
-            getLevel={getLevel}
-            speaking={status === 'speaking'}
-            listening={status === 'listening'}
-          />
+          <Orb getLevel={getLevel} state={status} />
         </div>
 
         <div className="flex flex-col items-center gap-1">
