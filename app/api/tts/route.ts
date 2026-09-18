@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { NextResponse } from 'next/server';
-import { OVOZ_SOZLAMALARI, ovozUchunTayyorla } from '@/lib/ovoz';
+import { OVOZLAR } from '@/lib/ovoz';
+import { ovozgaTayyorla, tilniAniqla, type Til } from '@/lib/normalize';
 
 export const runtime = 'nodejs';
 
@@ -55,17 +56,17 @@ const audioResponse = (buf: Buffer, hit: boolean) =>
   });
 
 /** One socket per synthesis; a shared one would interleave concurrent turns. */
-async function synthesise(text: string): Promise<Buffer> {
+async function synthesise(text: string, til: Til): Promise<Buffer> {
   const tts = new MsEdgeTTS();
   try {
     return await withDeadline(async () => {
       await tts.setMetadata(
-        OVOZ_SOZLAMALARI.voice,
+        OVOZLAR[til].voice,
         OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3,
       );
       const { audioStream } = tts.toStream(text, {
-        rate: OVOZ_SOZLAMALARI.rate,
-        pitch: OVOZ_SOZLAMALARI.pitch,
+        rate: OVOZLAR[til].rate,
+        pitch: OVOZLAR[til].pitch,
       });
 
       const chunks: Buffer[] = [];
@@ -101,20 +102,27 @@ export async function GET(req: Request) {
     );
   }
 
-  /* §5.1 — mandatory. The model only says oʻ and gʻ correctly with U+02BB,
-     and the catalogue spells its apostrophes half a dozen different ways.
-     Screen text is untouched; only the copy going to the voice is fixed. */
-  const text = ovozUchunTayyorla(raw);
+  /* Til: ochiq berilgani ustun, aks holda yozuvdan aniqlanadi. Bu yerda
+     aniqlash xom matndan qilinadi — normalizatsiya kirill birliklarni
+     o'zbekchaga aylantirib, nisbatni buzib yuborardi. */
+  const soralgan = new URL(req.url).searchParams.get('til');
+  const til: Til = soralgan === 'ru' || soralgan === 'uz' ? soralgan : tilniAniqla(raw);
 
+  /* Butun normalizatsiya quvuri (v4 §3): model kodlari, narxlar,
+     qisqartmalar, sonlar, apostrof. Ekran matni tegilmaydi — bu faqat
+     ovozga ketadigan nusxa. */
+  const text = ovozgaTayyorla(raw, til);
+
+  const ovoz = OVOZLAR[til];
   const key = createHash('sha256')
-    .update(`${OVOZ_SOZLAMALARI.voice}|${OVOZ_SOZLAMALARI.rate}|${OVOZ_SOZLAMALARI.pitch}|${text}`)
+    .update(`${ovoz.voice}|${ovoz.rate}|${ovoz.pitch}|${text}`)
     .digest('hex');
 
   const hit = cache.get(key);
   if (hit) return audioResponse(hit, true);
 
   try {
-    const buf = await synthesise(text);
+    const buf = await synthesise(text, til);
     remember(key, buf);
     return audioResponse(buf, false);
   } catch (err) {

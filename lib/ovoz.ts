@@ -1,28 +1,22 @@
-/**
- * Ovoz sozlamalari va TTS uchun matn tayyorlash (brief v3 §5).
- *
- * Sozlamalar bitta joyda turadi — kodga tarqalib ketmasin, chunki rate/pitch
- * quloq bilan sinab tanlanadi va keyin ham o'zgarishi mumkin.
- */
-export const OVOZ_SOZLAMALARI = {
-  voice: 'uz-UZ-SardorNeural',
-  rate: '+10%',
-  pitch: '+0Hz',
-} as const;
+import type { Til } from './normalize';
 
 /**
- * Oddiy apostroflarni rasmiy oʻzbek belgisiga (ʻ, U+02BB) almashtiradi.
+ * Ovoz sozlamalari (brief v4 §2.1).
  *
- * Model "oʻ" va "gʻ" ni faqat shu belgi bilan to'g'ri talaffuz qiladi; oddiy
- * ' bilan ular buziladi. Faqat o va g harflaridan keyin ishlaydi, shuning
- * uchun "EPA'ning" kabi qo'shimchalarga tegmaydi.
+ * Bitta joyda turadi — rate/pitch quloq bilan sinab tanlanadi va keyin ham
+ * o'zgarishi mumkin, kodga tarqalib ketmasligi kerak.
  *
- * Ekrandagi matn o'zgarmaydi — faqat ovozga ketadigan nusxa tuzatiladi.
- * 940 ta mahsulot bazasida apostroflar turli ko'rinishda yozilgani uchun
- * bu majburiy qadam.
+ * uz-UZ-SardorNeural ruscha gapira olmaydi — u faqat o'zbek tili uchun
+ * o'qitilgan, shuning uchun har til uchun alohida ovoz. Ikki ovoz bir xil
+ * odamga o'xshamaydi; mijoz bir seansda bitta tildan foydalangani uchun
+ * bu sezilmaydi.
  */
-const OG_APOSTROF = /([oOgG])['‘’ʼ`´]/g;
+export const OVOZLAR: Record<Til, { voice: string; rate: string; pitch: string }> = {
+  uz: { voice: 'uz-UZ-SardorNeural', rate: '+10%', pitch: '+0Hz' },
+  ru: { voice: 'ru-RU-DmitryNeural', rate: '+8%', pitch: '+0Hz' },
+};
 
-export function ovozUchunTayyorla(matn: string): string {
-  return matn.replace(OG_APOSTROF, '$1ʻ');
-}
+/** Eski nom — oldingi kod hali shunga murojaat qilsa buzilmasin. */
+export const OVOZ_SOZLAMALARI = OVOZLAR.uz;
+
+export { apostrof as ovozUchunTayyorla } from './normalize';

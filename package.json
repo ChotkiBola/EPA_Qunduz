@@ -8,11 +8,13 @@
     "build": "next build",
     "start": "next start",
     "scrape": "tsx scripts/scrape-epa.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test lib/*.test.ts"
   },
   "dependencies": {
     "msedge-tts": "^2.0.7",
     "next": "^15.5.22",
+    "number-to-words-ru": "^2.4.1",
     "openai": "^7.4.0",
     "react": "19.1.0",
     "react-dom": "19.1.0"
