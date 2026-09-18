@@ -7,9 +7,10 @@
     "prebuild": "npm run scrape || echo \"scrape failed - building with the committed data/kb.json\"",
     "build": "next build",
     "start": "next start",
-    "scrape": "tsx scripts/scrape-epa.ts",
+    "scrape": "tsx scripts/scrape-epamarket.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test lib/*.test.ts"
+    "test": "node --import tsx --test lib/*.test.ts",
+    "scrape:epa": "tsx scripts/scrape-epa.ts"
   },
   "dependencies": {
     "msedge-tts": "^2.0.7",

@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { kb } from '@/lib/kb';
+import { kb, malumotYoshi, narxEskirganmi } from '@/lib/kb';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,9 +58,17 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       triggered: true,
-      // What the currently-running deployment was built with, so the next
-      // run's numbers can be compared against it.
-      hozirgi: { mahsulot: kb.items.length, kategoriya: kb.cats.length },
+      /* Hozirgi deploy nima bilan qurilgani — keyingi yurish raqamlarini
+         shu bilan solishtirish mumkin. 20% qisqarish tekshiruvi esa
+         scripts/scrape-epamarket.ts ichida, yozishdan oldin ishlaydi. */
+      hozirgi: {
+        manba: kb.source,
+        mahsulot: kb.items.length,
+        kategoriya: kb.cats.length,
+        updated_at: kb.updated_at,
+        yoshi_kun: Math.round(malumotYoshi() * 10) / 10,
+        eskirgan: narxEskirganmi(),
+      },
     });
   } catch (err) {
     return NextResponse.json(

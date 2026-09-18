@@ -15,14 +15,6 @@ export type Kb = {
   items: KbItem[];
 };
 
-/** A product card, resolved server-side by /api/chat. */
-export type Card = {
-  s: string; // artikul
-  n: string; // Uzbek title
-  url: string;
-  img: string | null;
-};
-
 /** Success shape of POST /api/chat. Errors come back as { error }. */
 export type ChatResponse = {
   javob: string;
@@ -32,3 +24,14 @@ export type ChatResponse = {
 
 /** Avatar holat mashinasi (brief v3 §2): idle → listening → thinking → speaking */
 export type AvatarState = 'idle' | 'listening' | 'thinking' | 'speaking';
+
+/** Kartochka — /api/chat serverda tayyorlab beradi (brief v4 §4). */
+export type Card = {
+  s: string;            // artikul
+  n: string;            // nom (so'ralgan tilda)
+  url: string;
+  img: string | null;
+  narx: string | null;  // ekran uchun aniq narx, masalan "1 409 100 soʻm"
+  omborda: boolean;
+  ombor: string;        // "omborda bor" / "hozir yo‘q, oldindan buyurtma"
+};

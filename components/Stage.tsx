@@ -8,6 +8,9 @@ import Sheet from './Sheet';
 import { GREETING, PHONE, STARTERS } from '@/lib/copy';
 import { useTts } from '@/lib/useTts';
 import { useSpeechRecognition } from '@/lib/useSpeechRecognition';
+import { useTil } from '@/lib/useTil';
+import { useMicLevel } from '@/lib/useMicLevel';
+import type { Til } from '@/lib/normalize';
 import type { Card, ChatResponse } from '@/lib/types';
 
 type Msg = {
@@ -40,6 +43,9 @@ export default function Stage() {
   const [showTranscript, setShowTranscript] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  /* Til: tanlov ustun, aks holda server savol yozuvidan aniqlaydi (§2.2). */
+  const [tanlanganTil, tilniTanla] = useTil();
+
   /* Mouth/ring drive — written every frame by the TTS analyser. */
   const levelRef = useRef(0);
   const getLevel = useCallback(() => levelRef.current, []);
@@ -53,6 +59,10 @@ export default function Stage() {
     onEnd: () => setStatus('idle'),
     onError: setNotice,
   });
+
+  /* Halqalar mikrofon ovoziga javob berishi uchun alohida analizator —
+     SpeechRecognition matn beradi, amplitudani bermaydi (v3 §2.2). */
+  const micLevel = useMicLevel(levelRef);
 
   const sendRef = useRef<(text: string) => void>(() => {});
   const mic = useSpeechRecognition({
@@ -85,7 +95,7 @@ export default function Stage() {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ message: question, history }),
+          body: JSON.stringify({ message: question, history, til: tanlanganTil }),
         });
         const data = (await res.json()) as ChatResponse & { error?: string };
 
@@ -105,7 +115,7 @@ export default function Stage() {
         setStatus('idle');
         if (!muted) {
           setNotice(null);
-          await speak(data.javob, speed);
+          await speak(data.javob, speed, (data as { til?: Til }).til);
         }
       } catch (err) {
         // Drop the failed turn so it cannot poison later context.
@@ -121,7 +131,7 @@ export default function Stage() {
         });
       }
     },
-    [busy, messages, muted, speak, speed],
+    [busy, messages, muted, speak, speed, tanlanganTil],
   );
 
   // The mic's onFinal fires from inside the hook, where `send` would be stale.
@@ -132,8 +142,11 @@ export default function Stage() {
   // Listening is a status like any other, but must not overwrite "thinking".
   useEffect(() => {
     if (mic.listening) setStatus('listening');
-    else setStatus((s) => (s === 'listening' ? 'idle' : s));
-  }, [mic.listening]);
+    else {
+      micLevel.stop();
+      setStatus((s) => (s === 'listening' ? 'idle' : s));
+    }
+  }, [mic.listening, micLevel]);
 
   /* The greeting should be heard, not just read. Browsers block audio that
      was not asked for, so this is best-effort: useTts swallows the block and
@@ -185,6 +198,7 @@ export default function Stage() {
 
   return (
     <main
+      data-bosqich={asked ? 'chat' : 'stage'}
       className="flex h-dvh flex-col overflow-hidden text-qor"
       style={{
         background:
@@ -199,6 +213,24 @@ export default function Stage() {
         <span className="font-display text-lg font-extrabold">Qunduz</span>
 
         <div className="ml-auto flex items-center gap-1">
+          {/* Matn ko'rinishida, bayroq emas: bayroq tilni emas, davlatni bildiradi */}
+          <div className="mr-1 flex overflow-hidden rounded-full border border-white/10">
+            {(['uz', 'ru'] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => tilniTanla(k)}
+                aria-pressed={tanlanganTil === k}
+                title={k === 'uz' ? 'O‘zbekcha' : 'Русский'}
+                className={`px-2.5 py-1 text-[11px] font-bold uppercase transition ${
+                  tanlanganTil === k
+                    ? 'bg-suv text-tub'
+                    : 'text-xira hover:text-qor'
+                }`}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
           <IconButton
             label={muted ? 'Ovozni yoqish' : 'Ovozni o’chirish'}
             active={muted}
@@ -228,7 +260,7 @@ export default function Stage() {
       <section className="flex flex-1 flex-col items-center justify-center gap-5 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-6">
         {/* The orb gives way once there is an answer to read. */}
         <div
-          className={`w-full shrink-0 transition-[max-width] duration-500 ${
+          className={`otish-avatar w-full shrink-0 ${
             asked ? 'max-w-[min(38vw,190px)]' : 'max-w-[min(70vw,340px)]'
           }`}
         >
@@ -263,11 +295,11 @@ export default function Stage() {
           ) : (
             <>
               {lastUser && (
-                <p className="text-sm text-yogoch-och sm:text-base">
+                <p key={lastUser.content} className="xabar-kirdi text-sm text-yogoch-och sm:text-base">
                   {lastUser.content}
                 </p>
               )}
-              <p className="mt-2 text-balance text-xl leading-snug sm:text-2xl">
+              <p key={lastAssistant?.content} className="xabar-kirdi mt-2 text-balance text-xl leading-snug sm:text-2xl">
                 {lastAssistant?.content}
               </p>
 
@@ -283,7 +315,7 @@ export default function Stage() {
 
           {/* starter chips — only before the first question */}
           {!asked && !error && (
-            <div className="mt-7 flex flex-wrap justify-center gap-2">
+            <div className="otish-chiqadi mt-7 flex flex-wrap justify-center gap-2">
               {STARTERS.map((s) => (
                 <button
                   key={s}
@@ -331,12 +363,14 @@ export default function Stage() {
             onClick={() => {
               if (mic.listening) {
                 mic.stop();
+                micLevel.stop();
                 return;
               }
               // Barge-in: the customer talking over Qunduz should silence him.
               stopVoice();
               setNotice(null);
               setInput('');
+              void micLevel.start();
               mic.start();
             }}
             className={`grid h-11 w-11 shrink-0 place-items-center rounded-full border transition disabled:opacity-40 ${
@@ -358,7 +392,12 @@ export default function Stage() {
         </form>
         <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-xira">
           Narxlar uchun savdo bo’limi:{' '}
-          <span className="mono-chip text-yogoch-och">{PHONE}</span>
+          <a
+            href={`tel:${PHONE.replace(/[^+\d]/g, '')}`}
+            className="mono-chip text-yogoch-och underline-offset-2 hover:underline"
+          >
+            {PHONE}
+          </a>
         </p>
       </footer>
 
@@ -482,12 +521,17 @@ const IconTranscript = () => (
     <path d="M4 6h16M4 12h16M4 18h10" />
   </svg>
 );
+/* Oldingi ikonka — doira va nurlar — quyoshga o`xshab ketardi va mijoz uni
+   mavzu almashtirgich deb o`qigan. Slayderlar sozlamani aniq bildiradi. */
 const IconSettings = () => (
   <svg {...svg}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+    <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h7M15 18h5" />
+    <circle cx="16" cy="6" r="2" />
+    <circle cx="10" cy="12" r="2" />
+    <circle cx="13" cy="18" r="2" />
   </svg>
 );
+
 const IconClose = () => (
   <svg {...svg}>
     <path d="M6 6l12 12M18 6 6 18" />

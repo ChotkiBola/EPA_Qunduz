@@ -173,3 +173,45 @@
     transition: none !important;
   }
 }
+
+/* ── Bo'sh holatdan suhbatga o'tish (brief v3 §3.3) ──────────────────────
+   Sahifadagi yagona katta animatsion moment. Bosqichlar ataylab ustma-ust
+   tushadi — 120ms da avatar boshlanadi, matn hali to'liq yo'qolmagan —
+   shunda harakat uzluksiz oqadi, bo'lak-bo'lak ko'rinmaydi.
+
+   FLIP ishlatilmadi: avatar oqimda qoladi va faqat o'lchami o'zgaradi,
+   joyi emas. FLIP boshqa layout pozitsiyasiga ko'chadigan element uchun;
+   bu yerda u natijani o'zgartirmasdan murakkablik qo'shardi. */
+
+.otish-chiqadi {
+  transition:
+    opacity 160ms ease-out,
+    transform 160ms ease-out;
+}
+[data-bosqich='chat'] .otish-chiqadi {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.otish-avatar {
+  transition:
+    max-width 440ms cubic-bezier(0.22, 1, 0.36, 1) 120ms,
+    margin 440ms cubic-bezier(0.22, 1, 0.36, 1) 120ms;
+}
+
+@keyframes xabar-kirdi {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* §3.4 — yangi xabar: 220ms, boshqa effekt qo'shilmasin */
+.xabar-kirdi {
+  animation: xabar-kirdi 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .otish-chiqadi,
+  .otish-avatar { transition: none !important; }
+  .xabar-kirdi { animation: none !important; }
+}

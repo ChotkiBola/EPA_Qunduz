@@ -111,16 +111,55 @@ be the real fix.
 
 ## Knowledge base
 
-`data/kb.json` holds the scraped EPA catalogue (940 products, 95 categories) in
-the compact shape described in the build brief. `npm run scrape` regenerates it
-from epa.uz in about ten seconds; the buildId is re-read on every run and
-refreshed once if a request 404s mid-scrape.
+`data/kb.json` holds the catalogue from **epamarket.uz**, which is the whole
+point of the v4 migration: unlike epa.uz it carries a price and a stock count,
+so Qunduz can answer with a number instead of deflecting to the sales line on
+every question.
 
-The scrape also runs as a `prebuild` step, so **every deployment ships a fresh
-catalogue**. If epa.uz is unreachable the scrape fails loudly in the log and the
-build continues with the committed `data/kb.json` — a bad network should not
-break a deploy. The same fallback means the committed file is worth keeping
-current.
+The data comes from a public REST API, not scraping. `api2.epamarket.uz`
+exposes it and needs no key — the brief's fallback of asking the EPA backend
+team turned out to be unnecessary:
+
+| Endpoint | Gives |
+|---|---|
+| `GET /api/v1/products?page=N` | 62 pages of 15, honours `Accept-Language` |
+| `GET /api/v1/products/{slug}` | `epamarket_price`, `epamarket_stock`, specs, per-locale slugs |
+| `GET /api/v1/categories` | categories |
+
+Two things that are not obvious and cost time to find:
+
+- **Price and stock live only on the detail endpoint.** The list has neither, so
+  a full catalogue means one detail call per product rather than 62 list calls.
+- **Uzbek content needs the Uzbek slug, not just the header.** `Accept-Language:
+  uz` against a Russian slug returns 404, because the slugs differ per locale.
+  The detail response carries a `slug` object with all four locales; that is
+  where the Uzbek one comes from.
+
+`npm run scrape` rebuilds the file. Concurrency is 3, measured: the API returned
+429 and dropped 93% of the catalogue at 16, while 3 sustains about 8 requests a
+second cleanly. The run takes a while — roughly 1900 calls — and prints progress
+every 100 products so a quiet process is not mistaken for a hung one.
+
+The old epa.uz scraper is still there as `npm run scrape:epa`.
+
+`prebuild` runs the scrape before every `next build`, which is how a deploy
+ships fresh data. A full run is about half an hour, though, so it skips when
+`data/kb.json` is younger than 12 hours — otherwise every code deploy would pay
+for a scrape it does not need, and would sit close to Vercel's build timeout.
+The daily cron arrives 24 hours apart, so it always passes the check. Override
+with `SCRAPE_MAX_AGE_HOURS`, or force a run with `npm run scrape -- --force`.
+
+### Guards
+
+Per the brief, the writer refuses bad data rather than shipping it:
+
+- If the catalogue shrank by more than 20% against the previous file, it throws
+  and writes nothing. This already fired for real during development, when rate
+  limiting cost most of the catalogue.
+- The previous file is kept as `data/kb.oldingi.json`, one version back.
+- Every file carries `updated_at`. If it is older than 7 days the system prompt
+  gains an instruction to add a short "the price may have changed" caveat, since
+  stating a stale price confidently is the worst outcome.
 
 ### Daily refresh
 
@@ -128,10 +167,9 @@ current.
 
 That route deliberately does **not** scrape. Vercel's filesystem is read-only at
 runtime, `/tmp` is per-instance and ephemeral, and `data/kb.json` is a
-build-time import that the search index and the landing page's counts are built
-from — so writing it at runtime cannot work and would leave instances
-disagreeing. Instead the route triggers a redeploy, and the build does the
-scraping. One mechanism, one source of truth.
+build-time import that the search index is built from — so writing it at runtime
+cannot work and would leave instances disagreeing. Instead the route triggers a
+redeploy, and the build does the scraping. One mechanism, one source of truth.
 
 It needs two variables. Vercel sends `CRON_SECRET` as a Bearer token on cron
 invocations, and the route rejects anything else — without it the endpoint would
@@ -141,6 +179,44 @@ be an open redeploy button.
 |---|---|
 | `CRON_SECRET` | any long random string you generate |
 | `VERCEL_DEPLOY_HOOK_URL` | Vercel → Settings → Git → Deploy Hooks → create one for `main` |
+
+## Two front ends
+
+Both use the same brain and the same catalogue; they differ in what they are for.
+
+| | `/stage` | `/chat` |
+|---|---|---|
+| Avatar | large, animated | none |
+| Voice | in and out | none — the voice code is never imported |
+| Answers | complete, then spoken | streamed token by token |
+| For | demo, the "wow" | a fast assistant |
+
+`/chat` streams for real rather than typing out a finished answer. The model
+returns strict JSON, so the stream carries partial JSON; the route extracts the
+`javob` field as it arrives and forwards just the new characters over SSE. The
+schema guarantee is kept and the customer starts reading while the model is
+still writing.
+
+`/chat` is built to stand alone so it can later be embedded in epamarket.uz as a
+widget, and it holds no state outside itself.
+
+## Language
+
+Uzbek and Russian. The answer is always in the language of the question —
+answering an Uzbek question in Russian is an outright bug.
+
+Language is decided in this order: the UZ/RU switch in the header (stored in
+`localStorage`), then the script of the question, then Uzbek.
+
+The brief proposed "more than 30% Cyrillic means Russian". That rule fails a
+real case its own acceptance criteria require: *"Шлифовальная mashinasi
+bormi?"* is an Uzbek question using a Russian product name, comes out at 46%
+Cyrillic, and would be answered in Russian. Majority script is used instead —
+that question stays Uzbek, while *"Сколько стоит EEP-28-3?"* at 80% is Russian.
+
+Each language has its own voice, because `uz-UZ-SardorNeural` cannot speak
+Russian: Uzbek uses Sardor, Russian uses `ru-RU-DmitryNeural`. They do not sound
+like the same person, which is fine — a customer uses one language per session.
 
 ## Deploying
 
@@ -174,21 +250,41 @@ directory, and a concurrent build leaves the dev server throwing
 
 ## Build order
 
-The original build brief (`QUNDUZ_CLAUDE_CODE_BRIEF.md` §12) is complete:
+The original build brief (`QUNDUZ_CLAUDE_CODE_BRIEF.md` §12) is complete.
 
-1. ✅ Scaffold, design tokens, landing page with the breathing Qunduz
-2. ✅ Scraper → `data/kb.json`
-3. ✅ `lib/search.ts` + `/api/chat`
-4. ✅ Stage UI, orb, product cards, transcript
-5. ✅ `/api/tts` + audio-driven lip sync
-6. ✅ Speech input
-7. ✅ Cron refresh, deploy
-
-The animation brief (v3 §8) is in progress:
+Animation brief (v3 §8):
 
 1. ✅ Avatar state machine and idle animations
-2. ⬜ Layout transition between the empty and conversation states
+2. ✅ Layout transition between the empty and conversation states
 3. ✅ Voice integration and apostrophe normalisation
-4. ⬜ Amplitude-driven listening and speaking animations
-5. ⬜ UI fixes
-6. ⬜ Extra poses (optional)
+4. ✅ Amplitude-driven listening and speaking animations
+5. ✅ UI fixes
+6. ⬜ Extra poses — optional, needs new artwork
+
+Data brief (v4 §6):
+
+1. ✅ Normalisation module and tests
+2. ✅ Russian voice and language routing
+3. ✅ epamarket API discovery
+4. ✅ Catalogue migration with prices
+5. ✅ Daily refresh
+6. ✅ `/chat` route
+
+### Where the briefs contradicted themselves
+
+Both resolved in favour of the acceptance criteria, since that is what the
+work is judged on. Recorded here so the decisions are not mistaken for drift.
+
+- **v4 §3.3 vs §3.6.** The sample code renders 125 as "yuz yigirma besh"; the
+  mandatory test table expects "bir yuz yigirma besh". The table wins, and it
+  is the standard spoken form.
+- **v4 §2.2 vs §7.** "More than 30% Cyrillic means Russian" would answer
+  *"Шлифовальная mashinasi bormi?"* — an Uzbek question with a Russian product
+  name, 46% Cyrillic — in Russian, which §7 forbids. Majority script is used
+  instead.
+- **v3 §2.2/§2.3 vs the artwork.** The brief asks the head to tilt on its own,
+  but `qunduz-body.png` is one layer with head, cap and arms in it. The whole
+  figure leans from the feet instead.
+- **v3 §3.3 asks for FLIP.** Not used: the avatar stays in flow and only its
+  width changes, so FLIP would add machinery without changing the result.
+  Staged CSS transitions with the brief's timings and easing do the job.

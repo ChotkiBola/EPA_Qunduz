@@ -1,41 +1,24 @@
 /**
- * Retrieval over the EPA catalogue — LOCKED algorithm (brief §3).
+ * Katalog bo'yicha qidiruv.
  *
- * Plain keyword scoring, no embeddings. Ported verbatim from the tested
- * prototype: the STOP list, the normaliser, the tokeniser and the three
- * scoring rules below are not to be redesigned.
+ * Algoritm v1 briefdan o'zgarmagan (tekshirilgan): STOP ro'yxati, normalizator,
+ * tokenizator va +12 / +3 / +2 / +1 ballari. O'zgargani — indeks endi ikki
+ * tilda quriladi, chunki katalog o'zbekcha va ruscha nomlarni saqlaydi.
  */
 import { kb } from './kb';
-import type { KbItem } from './types';
+import type { Mahsulot } from './scrape-epamarket';
+import type { Til } from './normalize';
 
 const STOP = new Set([
-  'va',
-  'uchun',
-  'bilan',
-  'qanday',
-  'qaysi',
-  'nima',
-  'menga',
-  'kerak',
-  'bor',
-  'iltimos',
-  'eng',
-  'yaxshi',
-  'ayting',
-  'bering',
-  'tavsiya',
-  'qiling',
-  'men',
-  'siz',
-  'shu',
-  'bu',
-  'the',
-  'and',
-  'for',
-  'with',
-  'what',
-  'which',
-  'how',
+  // o'zbekcha
+  'va', 'uchun', 'bilan', 'qanday', 'qaysi', 'nima', 'menga', 'kerak', 'bor',
+  'iltimos', 'eng', 'yaxshi', 'ayting', 'bering', 'tavsiya', 'qiling', 'men',
+  'siz', 'shu', 'bu',
+  // ruscha — endi ruscha savollar ham keladi
+  'для', 'что', 'как', 'какой', 'какая', 'нужен', 'нужна', 'нужно', 'есть',
+  'мне', 'пожалуйста', 'самый', 'лучший', 'посоветуйте', 'скажите', 'это',
+  // inglizcha
+  'the', 'and', 'for', 'with', 'what', 'which', 'how',
 ]);
 
 export const norm = (s: string) =>
@@ -50,41 +33,45 @@ export const toks = (s: string) =>
     .filter((w) => w.length > 2 && !STOP.has(w));
 
 type Indexed = {
-  item: KbItem;
-  top: string;
-  sub: string;
+  item: Mahsulot;
   sku: string;
   blob: string;
 };
 
-/** Built once per server process — 940 products, cheap enough. */
+/* Indeks ikki tilni ham o'z ichiga oladi: mijoz ruscha nom bilan izlab,
+   o'zbekcha javob olishi mumkin va aksincha. */
 const index: Indexed[] = kb.items.map((item) => {
-  const [top, sub] = kb.cats[item.c] ?? ['', ''];
+  const kat = kb.cats[item.c] ?? { uz: '', ru: '' };
   return {
     item,
-    top,
-    sub,
     sku: norm(item.s),
-    blob: norm([item.n, item.s, sub, top, item.sp.join(' '), item.d].join(' ')),
+    blob: norm(
+      [
+        item.n.uz, item.n.ru,
+        item.s,
+        kat.uz, kat.ru,
+        item.sp.uz.join(' '), item.sp.ru.join(' '),
+        item.d.uz, item.d.ru,
+      ].join(' '),
+    ),
   };
 });
 
-/** All 95 "top / sub" pairs, for the KATALOG KATEGORIYALARI line. */
-export const categoryList = kb.cats.map(([t, s]) => `${t} / ${s}`).join('; ');
+export const categoryList = (til: Til) =>
+  kb.cats.map((c) => c[til] || c.ru).join('; ');
 
 export type SearchHit = {
-  item: KbItem;
-  top: string;
-  sub: string;
+  item: Mahsulot;
+  kat: string;
   score: number;
 };
 
-/**
- * @param query  the customer's message
- * @param recent text of the last ~4 conversation messages, so follow-ups
- *               ("va undan kuchliroq bormi?") still retrieve
- */
-export function search(query: string, recent = '', limit = 7): SearchHit[] {
+export function search(
+  query: string,
+  recent = '',
+  til: Til = 'uz',
+  limit = 7,
+): SearchHit[] {
   const tokens = Array.from(new Set(toks(`${query} ${recent}`)));
   if (tokens.length === 0) return [];
 
@@ -97,18 +84,18 @@ export function search(query: string, recent = '', limit = 7): SearchHit[] {
       if (entry.blob.includes(` ${t}`)) score += t.length > 4 ? 3 : 2;
       else if (entry.blob.includes(t)) score += 1;
     }
-    // A zero score is a non-match; padding the context with random products
-    // would only invite the model to recommend something irrelevant.
     if (score > 0) {
-      hits.push({ item: entry.item, top: entry.top, sub: entry.sub, score });
+      const kat = kb.cats[entry.item.c] ?? { uz: '', ru: '' };
+      hits.push({ item: entry.item, kat: kat[til] || kat.ru, score });
     }
   }
 
-  hits.sort((a, b) => b.score - a.score);
+  /* Teng ballda omborda bori oldinga chiqadi — mijozga bugun sotib
+     olinadigan mahsulotni ko'rsatish foydaliroq. */
+  hits.sort((a, b) => b.score - a.score || Number(b.item.stock > 0) - Number(a.item.stock > 0));
   return hits.slice(0, limit);
 }
 
-/** Last ~4 messages of conversation text, folded into the query. */
 export const recentText = (
   history: { role: string; content: string }[],
   count = 4,

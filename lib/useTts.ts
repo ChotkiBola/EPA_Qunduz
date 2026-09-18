@@ -95,7 +95,7 @@ export function useTts({ levelRef, onStart, onEnd, onError }: Options) {
   }, [stopMeter]);
 
   const speak = useCallback(
-    async (text: string, speed = 1) => {
+    async (text: string, speed = 1, til?: 'uz' | 'ru') => {
       const clean = text.trim();
       if (!clean) return;
 
@@ -104,7 +104,11 @@ export function useTts({ levelRef, onStart, onEnd, onError }: Options) {
       if (ctx.state === 'suspended') await ctx.resume();
 
       stop();
-      audio.src = `/api/tts?text=${encodeURIComponent(clean)}`;
+      /* Til serverga uzatiladi: javob ruscha bo'lsa ruscha ovoz kerak, va
+         SardorNeural ruscha gapira olmaydi. Berilmasa server matndan o'zi
+         aniqlaydi. */
+      audio.src =
+        `/api/tts?text=${encodeURIComponent(clean)}` + (til ? `&til=${til}` : '');
       audio.playbackRate = speed;
 
       return new Promise<void>((resolve) => {

@@ -23,6 +23,7 @@ export default function ProductCard({ card }: { card: Card }) {
           <span className="mono-chip text-[10px] text-xira">EPA</span>
         )}
       </span>
+
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold text-qor group-hover:text-white">
           {card.n}
@@ -30,7 +31,17 @@ export default function ProductCard({ card }: { card: Card }) {
         <span className="mono-chip mt-0.5 block text-xs text-yogoch-och">
           {card.s}
         </span>
+        {/* Narx — demo'ning butun ma'nosi shu, shuning uchun ko'zga tashlansin */}
+        {card.narx && (
+          <span className="mt-1 block text-sm font-bold text-qor">{card.narx}</span>
+        )}
+        <span
+          className={`mt-0.5 block text-[11px] ${card.omborda ? 'text-suv' : 'text-xira'}`}
+        >
+          {card.ombor}
+        </span>
       </span>
+
       <svg
         aria-hidden
         viewBox="0 0 24 24"

@@ -1,16 +1,14 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { search, recentText, type SearchHit } from '@/lib/search';
-import { SYSTEM, buildUserTurn } from '@/lib/prompt';
-import { imageUrl, productUrl } from '@/lib/kb';
+import { systemPrompt, buildUserTurn } from '@/lib/prompt';
+import { imageUrl, productUrl, narxMatn, omborMatn, malumotYoshi, narxEskirganmi } from '@/lib/kb';
+import { tilniAniqla, type Til } from '@/lib/normalize';
 import type { Card } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/* gpt-5.6-terra balances capability against latency, which matters because
-   the answer is read aloud. Override with OPENAI_MODEL to try gpt-5.6-sol
-   (stronger, pricier) or gpt-5.6-luna (fastest, cheapest) without a deploy. */
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
 const MAX_TOKENS = 2000;
 const HISTORY_TURNS = 8;
@@ -20,13 +18,9 @@ type Turn = { role: 'user' | 'assistant'; content: string };
 type ChatRequest = {
   message?: unknown;
   history?: unknown;
+  til?: unknown;
 };
 
-/* Card is resolved server-side so the browser never has to download the
-   whole knowledge base — see lib/types.ts. */
-
-/** The response contract the model must fill (brief §4). Strict mode means
-    the API itself guarantees the shape — no more hoping for clean JSON. */
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
@@ -43,8 +37,7 @@ const isTurn = (v: unknown): v is Turn =>
   ((v as Turn).role === 'user' || (v as Turn).role === 'assistant') &&
   typeof (v as Turn).content === 'string';
 
-/** The stage opens with Qunduz greeting first, so drop leading assistant
-    turns — the conversation the model sees should start with the customer. */
+/** The stage greets first, and the API must start on a user turn. */
 function sanitiseHistory(raw: unknown): Turn[] {
   if (!Array.isArray(raw)) return [];
   const turns = raw.filter(isTurn).filter((t) => t.content.trim().length > 0);
@@ -53,11 +46,7 @@ function sanitiseHistory(raw: unknown): Turn[] {
   return firstUser === -1 ? [] : recent.slice(firstUser);
 }
 
-/**
- * Strict structured outputs should make this a plain JSON.parse, but the
- * fallback stays: a silent empty answer was a real bug in the prototype, and
- * the model is configurable, so a future swap could lose schema enforcement.
- */
+/** Strict json_schema should make this a plain parse; the fallback stays. */
 function parseReply(text: string): { javob: string; artikullar: string[] } {
   const cleaned = text
     .trim()
@@ -72,10 +61,7 @@ function parseReply(text: string): { javob: string; artikullar: string[] } {
 
   for (const candidate of candidates) {
     try {
-      const parsed = JSON.parse(candidate) as {
-        javob?: unknown;
-        artikullar?: unknown;
-      };
+      const parsed = JSON.parse(candidate) as { javob?: unknown; artikullar?: unknown };
       if (typeof parsed.javob === 'string' && parsed.javob.trim()) {
         return {
           javob: parsed.javob.trim(),
@@ -85,15 +71,14 @@ function parseReply(text: string): { javob: string; artikullar: string[] } {
         };
       }
     } catch {
-      // fall through to the next candidate
+      // keyingi nomzodga o'tamiz
     }
   }
-
   return { javob: cleaned, artikullar: [] };
 }
 
-/** Only ever return artikuls that were actually in the context. */
-function toCards(artikullar: string[], hits: SearchHit[]): Card[] {
+/** Faqat kontekstda bo'lgan artikullar kartochkaga aylanadi. */
+function toCards(artikullar: string[], hits: SearchHit[], til: Til): Card[] {
   const byS = new Map(hits.map((h) => [h.item.s.toLowerCase(), h.item]));
   const cards: Card[] = [];
   const seen = new Set<string>();
@@ -104,9 +89,12 @@ function toCards(artikullar: string[], hits: SearchHit[]): Card[] {
     seen.add(item.s);
     cards.push({
       s: item.s,
-      n: item.n,
-      url: productUrl(item.u),
+      n: item.n[til] || item.n.ru,
+      url: productUrl(item, til),
       img: item.i ? imageUrl(item.i) : null,
+      narx: narxMatn(item.price, til),
+      omborda: item.stock > 0,
+      ombor: omborMatn(item.stock, til),
     });
     if (cards.length === 3) break;
   }
@@ -128,14 +116,15 @@ export async function POST(req: Request) {
   if (!message) return fail('Savol bo‘sh.', 400);
 
   if (!process.env.OPENAI_API_KEY) {
-    return fail(
-      'OPENAI_API_KEY sozlanmagan. .env.local fayliga kalitni qo‘shing.',
-      500,
-    );
+    return fail('OPENAI_API_KEY sozlanmagan. .env.local fayliga kalitni qo‘shing.', 500);
   }
 
+  /* Til: foydalanuvchi tanlovi ustun, aks holda savol yozuvidan (brief §2.2). */
+  const tanlangan = body.til === 'ru' || body.til === 'uz' ? (body.til as Til) : null;
+  const til: Til = tanlangan ?? tilniAniqla(message);
+
   const history = sanitiseHistory(body.history);
-  const hits = search(message, recentText(history));
+  const hits = search(message, recentText(history), til);
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -144,17 +133,13 @@ export async function POST(req: Request) {
       model: MODEL,
       max_completion_tokens: MAX_TOKENS,
       messages: [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: systemPrompt(til) },
         ...history.map((t) => ({ role: t.role, content: t.content })),
-        { role: 'user', content: buildUserTurn(message, hits) },
+        { role: 'user', content: buildUserTurn(message, hits, til) },
       ],
       response_format: {
         type: 'json_schema',
-        json_schema: {
-          name: 'qunduz_javob',
-          strict: true,
-          schema: RESPONSE_SCHEMA,
-        },
+        json_schema: { name: 'qunduz_javob', strict: true, schema: RESPONSE_SCHEMA },
       },
     });
 
@@ -165,7 +150,6 @@ export async function POST(req: Request) {
     }
 
     const text = choice?.message.content?.trim() ?? '';
-
     if (!text) {
       return fail(
         choice?.finish_reason === 'length'
@@ -180,10 +164,15 @@ export async function POST(req: Request) {
     return NextResponse.json({
       javob,
       artikullar,
-      mahsulotlar: toCards(artikullar, hits),
+      mahsulotlar: toCards(artikullar, hits, til),
+      til,
+      // Mijoz interfeysi kerak bo'lsa eskirish haqida ogohlantira olsin
+      malumot: {
+        yoshi_kun: Math.round(malumotYoshi() * 10) / 10,
+        eskirgan: narxEskirganmi(),
+      },
     });
   } catch (err) {
-    // Never swallow an upstream error — the UI shows it verbatim.
     if (err instanceof OpenAI.APIError) {
       return fail(`OpenAI API: ${err.message}`, err.status ?? 502);
     }
